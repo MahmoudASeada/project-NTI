@@ -37,3 +37,12 @@ readOnlyRootFilesystem: true
 capabilities:
   drop: ["ALL"]
 {{- end }}
+{{- define "taskboard.smallResources" -}}
+requests:
+  cpu: 20m
+  memory: 32Mi
+  ephemeral-storage: 16Mi
+limits:
+  memory: 128Mi
+  ephemeral-storage: 64Mi
+{{- end }}

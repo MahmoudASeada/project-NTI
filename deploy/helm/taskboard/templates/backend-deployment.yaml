@@ -17,12 +17,17 @@ spec:
         {{- include "taskboard.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: backend
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      resources:
+          {{- include "taskboard.smallResources" . | nindent 12 }}
+      securityContext:
+          {{- include "taskboard.containerSecurityContext" . | nindent 12 }}
       initContainers:
         - name: wait-for-db
           image: {{ .Values.postgres.image }}
