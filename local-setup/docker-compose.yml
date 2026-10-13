@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data           # pgdata save data if container deleted 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]  #ready to receive connection
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ../app/backend
+      args:
+        APP_VERSION: ${APP_VERSION}
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      APP_VERSION: ${APP_VERSION}
+      ENVIRONMENT: local
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy        # backend do not start until db == healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/ready', timeout=3)"]   #using python slim without curl
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ../app/frontend
+      args:
+        NEXT_PUBLIC_APP_VERSION: ${APP_VERSION}
+    environment:
+      BACKEND_URL: http://backend:8000        # using the name service because compose create dns internal
+    ports:
+      - "3000:8080"
+    depends_on:
+      backend:
+        condition: service_healthy          # frontend start after backend is healthy 
+
+  sonarqube:
+    image: sonarqube:community
+    profiles: ["sonar"]           # that meaning donot work with normal docker compose up 
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_extensions:/opt/sonarqube/extensions
+      - sonar_logs:/opt/sonarqube/logs
+
+volumes:
+  pgdata:
+  sonar_data:
+  sonar_extensions:
+  sonar_logs:
