@@ -8,8 +8,8 @@ metadata:
     "helm.sh/hook": test
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
-  automountServiceAccountToken: false
   restartPolicy: Never
+  automountServiceAccountToken: false
   securityContext:
     runAsNonRoot: true
     runAsUser: 10001
@@ -19,6 +19,14 @@ spec:
     - name: api-test
       image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
       imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+          ephemeral-storage: 16Mi
+        limits:
+          memory: 128Mi
+          ephemeral-storage: 64Mi
       env:
         - name: BASE_URL
           value: http://{{ include "taskboard.fullname" . }}-backend:{{ .Values.backend.port }}

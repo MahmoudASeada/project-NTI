@@ -37,6 +37,7 @@ readOnlyRootFilesystem: true
 capabilities:
   drop: ["ALL"]
 {{- end }}
+
 {{- define "taskboard.smallResources" -}}
 requests:
   cpu: 20m

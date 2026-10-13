@@ -17,12 +17,13 @@ backend:
       ephemeral-storage: 64Mi
     limits:
       memory: 256Mi
-      ephemeral-storage: 256Mi  
+      ephemeral-storage: 256Mi
+
 postgres:
   image: postgres:17-alpine
   storage:
     size: 1Gi
-    storageClassName: ""        # فاضي = الـ default StorageClass
+    storageClassName: ""        # empty = default StorageClass
   resources:
     requests:
       cpu: 100m
@@ -31,20 +32,21 @@ postgres:
     limits:
       memory: 512Mi
       ephemeral-storage: 512Mi
+
 database:
   port: 5432
   name: taskboard
   user: taskboard
 
-# plain    = Secret عادي (local بس)
-# external = ExternalSecret بيقرأ من AWS Secrets Manager (Part B)
+# plain    = plain Secret (local only)
+# external = ExternalSecret reading AWS Secrets Manager (Part B)
 credentials:
   mode: plain
   plain:
     password: ""
   external:
-    secretName: ""              # اسم الـ secret في Secrets Manager
-    property: ""                # لو الـ secret JSON، اسم الـ key
+    secretName: ""
+    property: ""
     region: eu-west-1
     refreshInterval: 1h
 
