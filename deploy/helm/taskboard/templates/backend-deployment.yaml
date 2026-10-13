@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taskboard.fullname" . }}-backend
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "taskboard.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "taskboard.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-db
+          image: {{ .Values.postgres.image }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              until pg_isready -h {{ include "taskboard.fullname" . }}-postgres -p {{ .Values.database.port }} -U {{ .Values.database.user }}; do
+                echo "waiting for postgres..."; sleep 2
+              done
+          resources:
+            {{- include "taskboard.smallResources" . | nindent 12 }}
+          securityContext:
+            {{- include "taskboard.containerSecurityContext" . | nindent 12 }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.port }}
+          env:
+            - name: DB_HOST
+              value: {{ include "taskboard.fullname" . }}-postgres
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: DB_USER
+              value: {{ .Values.database.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "taskboard.secretName" . }}
+                  key: DB_PASSWORD
+            - name: APP_VERSION
+              value: {{ .Values.backend.appVersion | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.backend.environment | quote }}
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            {{- include "taskboard.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
