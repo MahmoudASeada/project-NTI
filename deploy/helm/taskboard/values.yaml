@@ -1,0 +1,51 @@
+nameOverride: ""
+fullnameOverride: ""
+
+backend:
+  replicas: 1
+  port: 8000
+  appVersion: local
+  environment: local
+  image:
+    repository: taskboard-backend
+    tag: local
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+postgres:
+  image: postgres:17-alpine
+  storage:
+    size: 1Gi
+    storageClassName: ""        # فاضي = الـ default StorageClass
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+database:
+  port: 5432
+  name: taskboard
+  user: taskboard
+
+# plain    = Secret عادي (local بس)
+# external = ExternalSecret بيقرأ من AWS Secrets Manager (Part B)
+credentials:
+  mode: plain
+  plain:
+    password: ""
+  external:
+    secretName: ""              # اسم الـ secret في Secrets Manager
+    property: ""                # لو الـ secret JSON، اسم الـ key
+    region: eu-west-1
+    refreshInterval: 1h
+
+targetGroupBinding:
+  enabled: false
+  targetGroupARN: ""

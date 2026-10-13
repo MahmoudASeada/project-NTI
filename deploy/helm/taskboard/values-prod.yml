@@ -1,0 +1,23 @@
+backend:
+  replicas: 2
+  appVersion: v1.0.0
+  environment: production
+  image:
+    repository: CHANGE_ME   # ecr_repository_url
+    tag: CHANGE_ME
+    pullPolicy: IfNotPresent
+
+postgres:
+  storage:
+    size: 5Gi
+    storageClassName: gp3
+
+credentials:
+  mode: external
+  external:
+    secretName: CHANGE_ME
+    region: eu-west-1
+
+targetGroupBinding:
+  enabled: true
+  targetGroupARN: CHANGE_ME   # backend_target_group_arn

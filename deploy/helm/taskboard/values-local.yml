@@ -1,0 +1,13 @@
+backend:
+  replicas: 1
+  appVersion: local
+  environment: local
+  image:
+    repository: taskboard-backend
+    tag: local
+    pullPolicy: Never           # الصورة محمّلة بـ minikube image load
+
+credentials:
+  mode: plain
+  plain:
+    password: local-dev-password   # local بس
