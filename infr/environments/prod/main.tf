@@ -17,3 +17,8 @@ module "network" {
   cluster_name = var.cluster_name
   vpc_cidr     = var.vpc_cidr
 }
+module "ecr" {
+  source = "../../modules/ecr"
+
+  name = "taskboard-backend"
+}
