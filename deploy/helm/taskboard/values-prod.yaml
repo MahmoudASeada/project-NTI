@@ -21,3 +21,7 @@ credentials:
 targetGroupBinding:
   enabled: true
   targetGroupARN: CHANGE_ME   # backend_target_group_arn
+
+storageClass:
+  create: true
+  name: gp3

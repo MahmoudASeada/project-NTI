@@ -5,3 +5,12 @@ local-setup/.env
 terraform.tfvars
 *.auto.tfvars
 crash.log
+__pycache__/
+*.pyc
+.coverage
+coverage.xml
+reports/
+node_modules/
+.next/
+out/
+rendered/
