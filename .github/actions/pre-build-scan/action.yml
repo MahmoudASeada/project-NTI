@@ -1,0 +1,87 @@
+name: Pre-build scan
+description: Secrets (Gitleaks, TruffleHog), dependencies and misconfigurations (Trivy), code quality (SonarQube Cloud)
+
+inputs:
+  path:
+    description: Folder to scan with Trivy and SonarQube (e.g. app/backend)
+    required: true
+  artifact-name:
+    description: Unique name of the uploaded report artifact
+    required: true
+  trivy-version:
+    description: Trivy version, the same one you used by hand in Phase A3
+    default: v0.75.0
+  gitleaks-license:
+    description: Only needed when the repository belongs to an organization
+    default: ""
+  sonar-project-key:
+    description: Leave empty to skip SonarQube
+    default: ""
+  sonar-organization:
+    default: ""
+  sonar-host-url:
+    default: https://sonarcloud.io
+  sonar-token:
+    default: ""
+  sonar-args:
+    description: Extra scanner arguments (sources, tests, coverage report...)
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # The calling workflow must check out with fetch-depth: 0 (the scanners read the commits)
+    - name: Gitleaks (secrets in commits)
+      uses: gitleaks/gitleaks-action@PIN_SHA # vX.Y.Z
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GITLEAKS_LICENSE: ${{ inputs.gitleaks-license }}
+
+    - name: TruffleHog (secrets in commits)
+      if: ${{ !cancelled() }}
+      uses: trufflesecurity/trufflehog@PIN_SHA # vX.Y.Z
+      with:
+        path: ./
+        base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        extra_args: --results=verified,unknown,unverified --fail
+
+    - name: Trivy (dependencies, secrets, misconfigurations)
+      if: ${{ !cancelled() }}
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        scan-type: fs
+        scan-ref: ${{ inputs.path }}
+        scanners: vuln,secret,misconfig
+        severity: HIGH,CRITICAL
+        format: table
+        output: ${{ inputs.artifact-name }}-trivy-fs.txt
+        exit-code: "1"
+        version: ${{ inputs.trivy-version }}
+
+    - name: SonarQube Cloud (quality gate)
+      if: ${{ !cancelled() && inputs.sonar-project-key != '' }}
+      uses: SonarSource/sonarqube-scan-action@PIN_SHA # vX.Y.Z
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        SONAR_HOST_URL: ${{ inputs.sonar-host-url }}
+      with:
+        projectBaseDir: ${{ inputs.path }}
+        args: >
+          -Dsonar.organization=${{ inputs.sonar-organization }}
+          -Dsonar.projectKey=${{ inputs.sonar-project-key }}
+          -Dsonar.qualitygate.wait=true
+          ${{ inputs.sonar-args }}
+
+    - name: Show Trivy report
+      if: ${{ always() }}
+      shell: bash
+      run: cat "${{ inputs.artifact-name }}-trivy-fs.txt" || true
+
+    - name: Upload reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@PIN_SHA # vX.Y.Z
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifact-name }}-trivy-fs.txt
+        if-no-files-found: warn
