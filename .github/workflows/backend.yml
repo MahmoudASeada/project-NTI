@@ -24,7 +24,7 @@ jobs:
     outputs:
       run: ${{ steps.diff.outputs.run }}
     steps:
-      - uses: actions/checkout@PIN_SHA # vX.Y.Z
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: diff
@@ -47,7 +47,92 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
-    # ... باقي الـ job زي ما هو بدون أي تغيير ...
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the secret scanners read the commits
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/backend/requirements-dev.txt
+
+      - name: Install dependencies
+        working-directory: app/backend
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint (flake8)
+        working-directory: app/backend
+        run: flake8 .
+
+      - name: Tests + coverage
+        working-directory: app/backend
+        run: |
+          mkdir -p reports
+          pytest --cov=taskboard --cov-report=xml --junitxml=reports/junit.xml
+
+      - name: Upload test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-test-report
+          path: |
+            app/backend/reports/junit.xml
+            app/backend/coverage.xml
+          if-no-files-found: warn
+          retention-days: 5
+
+      - name: Pre-build scan
+        uses: ./.github/actions/pre-build-scan
+        with:
+          path: app/backend
+          artifact-name: backend-pre-scan
+          sonar-project-key: taskboard-backend
+          sonar-organization: ${{ vars.SONAR_ORGANIZATION }}
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Build image
+        run: docker build --pull -t "${IMAGE_NAME}:${GITHUB_SHA}" app/backend
+
+      - name: Post-build scan (image)
+        uses: ./.github/actions/post-build-scan
+        with:
+          scan-type: image
+          target: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          artifact-name: backend-post-scan
+          severity: CRITICAL
+
+      # The next steps run only on main, and only after the infrastructure
+      # exists (AWS_DEPLOY_ROLE_ARN is a GitHub variable you set after the first apply).
+      - name: Login to AWS (OIDC)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Push sha-<commit> to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        env:
+          ECR_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          TAG="sha-${GITHUB_SHA}"
+          REPO_NAME="${ECR_URL#*/}"
+          # Tags are immutable: a re-run of the same commit must not push twice
+          if aws ecr describe-images --repository-name "$REPO_NAME" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already in ECR, skipping push"
+          else
+            docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${ECR_URL}:${TAG}"
+            docker push "${ECR_URL}:${TAG}"
+          fi
 
   backend-passed:
     name: Backend passed

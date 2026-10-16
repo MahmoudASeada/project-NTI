@@ -53,3 +53,8 @@ credentials:
 targetGroupBinding:
   enabled: false
   targetGroupARN: ""
+
+# StorageClass for PostgreSQL volumes (AWS EBS gp3). Only created on EKS.
+storageClass:
+  create: false
+  name: gp3

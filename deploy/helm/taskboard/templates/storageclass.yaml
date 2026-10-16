@@ -1,0 +1,17 @@
+{{- if .Values.storageClass.create }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageClass.name }}
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # created before the PostgreSQL StatefulSet asks for it
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+parameters:
+  type: gp3
+  encrypted: "true"
+{{- end }}
