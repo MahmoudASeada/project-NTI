@@ -43,6 +43,12 @@ locals {
 resource "aws_s3_bucket" "tfstate" {
   bucket = "${var.state_bucket_prefix}-${local.account_id}-${var.region}"
 }
+resource "aws_s3_bucket_ownership_controls" "tfstate" {
+  bucket = aws_s3_bucket.tfstate.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
 
 resource "aws_s3_bucket_versioning" "tfstate" {
   bucket = aws_s3_bucket.tfstate.id
