@@ -1,0 +1,151 @@
+name: Infra
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to AWS (no access keys stored in GitHub)
+
+# One Terraform run at a time against the same state; never cancel a running apply
+concurrency:
+  group: terraform-prod
+  cancel-in-progress: false
+
+env:
+  TF_DIR: infra/environments/prod
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_github_repository: ${{ github.repository }}
+  TF_VAR_eks_admin_principal_arns: ${{ vars.EKS_ADMIN_PRINCIPAL_ARNS }}
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.diff.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          ZERO=0000000000000000000000000000000000000000
+          if [ -z "$BASE" ] || [ "$BASE" = "$ZERO" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$BASE" "$GITHUB_SHA" \
+             | grep -qE '^(infra/|\.github/workflows/infra\.yml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  plan:
+    name: Infra plan
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Scan Terraform code (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: infra
+          scanners: misconfig,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          version: v0.75.0
+
+      - name: Login to AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Format check
+        run: terraform fmt -check -recursive infra
+
+      - name: Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+      - name: Plan
+        working-directory: ${{ env.TF_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color | tee plan.txt
+
+      - name: Plan summary
+        if: always()
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          {
+            echo '## Terraform plan'
+            echo '```'
+            tail -n 60 plan.txt 2>/dev/null || echo "no plan output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    name: Infra apply
+    needs: plan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: infrastructure # required reviewer = manual approval before anything is created
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Login to AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      # A fresh plan + apply instead of passing a plan file between jobs:
+      # a plan file would be an artifact containing secret values (DB password).
+      - name: Apply
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -input=false -auto-approve
+
+  infra-passed:
+    name: Infra passed
+    if: ${{ always() }}
+    needs: [changes, plan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if the plan failed or was cancelled
+        env:
+          RESULT: ${{ needs.plan.result }}
+        run: |
+          echo "plan result: $RESULT"
+          if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then exit 1; fi

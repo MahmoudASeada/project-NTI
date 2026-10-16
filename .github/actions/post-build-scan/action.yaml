@@ -1,0 +1,67 @@
+name: Post-build scan
+description: Trivy scan of a built image or build output, plus a CycloneDX SBOM. Reports are uploaded as artifacts.
+
+inputs:
+  scan-type:
+    description: image (a local Docker image) or fs (a folder such as the frontend out/)
+    required: true
+  target:
+    description: Image reference (image) or folder (fs)
+    required: true
+  artifact-name:
+    description: Unique name of the uploaded artifact
+    required: true
+  severity:
+    description: Severities that fail the pipeline. The workflow passes CRITICAL for images.
+    default: HIGH,CRITICAL
+  scanners:
+    description: vuln for images; vuln,secret,misconfig is fine for folders
+    default: vuln
+  ignore-unfixed:
+    default: "true"
+  trivy-version:
+    default: v0.75.0
+
+runs:
+  using: composite
+  steps:
+    # The SBOM is generated first and never fails: it is the "ingredient list" of what we built
+    - name: Generate SBOM (CycloneDX)
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        scan-type: ${{ inputs.scan-type }}
+        image-ref: ${{ inputs.scan-type == 'image' && inputs.target || '' }}
+        scan-ref: ${{ inputs.scan-type == 'fs' && inputs.target || '.' }}
+        format: cyclonedx
+        output: ${{ inputs.artifact-name }}-sbom.cdx.json
+        exit-code: "0"
+        version: ${{ inputs.trivy-version }}
+
+    - name: Trivy scan
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        scan-type: ${{ inputs.scan-type }}
+        image-ref: ${{ inputs.scan-type == 'image' && inputs.target || '' }}
+        scan-ref: ${{ inputs.scan-type == 'fs' && inputs.target || '.' }}
+        scanners: ${{ inputs.scanners }}
+        severity: ${{ inputs.severity }}
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+        format: table
+        output: ${{ inputs.artifact-name }}-trivy.txt
+        exit-code: "1"
+        version: ${{ inputs.trivy-version }}
+
+    - name: Show Trivy report
+      if: ${{ always() }}
+      shell: bash
+      run: cat "${{ inputs.artifact-name }}-trivy.txt" || true
+
+    - name: Upload report and SBOM
+      if: ${{ always() }}
+      uses: actions/upload-artifact@PIN_SHA # vX.Y.Z
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.artifact-name }}-trivy.txt
+          ${{ inputs.artifact-name }}-sbom.cdx.json
+        if-no-files-found: warn

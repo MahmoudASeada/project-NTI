@@ -41,3 +41,9 @@ resource "aws_ecr_lifecycle_policy" "this" {
     ]
   })
 }
+data "aws_caller_identity" "current" {}
+
+locals {
+  # The pipeline role also needs admin: Terraform installs Helm charts into the cluster
+  infra_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/taskboard-github-infra"
+}
